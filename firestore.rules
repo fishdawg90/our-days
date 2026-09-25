@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function householdMember(householdId) {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/households/$(householdId)/members/$(request.auth.uid));
+    }
+
+    match /households/{householdId}/members/{userId} {
+      allow get: if request.auth != null && request.auth.uid == userId;
+      allow list, create, update, delete: if false;
+    }
+
+    match /households/{householdId}/{kind}/{itemId} {
+      allow read, write: if kind in ['list', 'pantry', 'purchases', 'catalogue', 'usageCycles'] &&
+        householdMember(householdId);
+
+      allow read: if kind in ['appointmentPhrases', 'appointmentHistory'] &&
+        householdMember(householdId);
+
+      allow create, update: if kind == 'appointmentPhrases' && householdMember(householdId) &&
+        request.resource.data.keys().hasOnly(['kind', 'text', 'normalised', 'useCount', 'lastUsedAt']) &&
+        request.resource.data.kind in ['description', 'location'] &&
+        request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 80 &&
+        request.resource.data.normalised is string && request.resource.data.normalised.size() > 0 && request.resource.data.normalised.size() <= 80 &&
+        request.resource.data.useCount is int && request.resource.data.useCount >= 0;
+
+      allow create: if kind == 'appointmentHistory' && householdMember(householdId) &&
+        request.resource.data.keys().hasOnly(['descriptionPhrases', 'locationPhrases', 'eventDates', 'submittedAt', 'createdBy']) &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.descriptionPhrases is list && request.resource.data.descriptionPhrases.size() <= 20 &&
+        request.resource.data.locationPhrases is list && request.resource.data.locationPhrases.size() <= 10 &&
+        request.resource.data.eventDates is list && request.resource.data.eventDates.size() <= 31;
+      allow update, delete: if kind == 'appointmentHistory' && false;
+      allow delete: if kind == 'appointmentPhrases' && false;
+    }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}
