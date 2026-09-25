@@ -33,6 +33,10 @@ function BottomActions({ children, className = 'sticky-actions' }: { children: R
   return createPortal(<div className={className}>{children}</div>, document.body);
 }
 
+function cacheSuggestions(value: { phrases: Phrase[]; histories: HistoryRecord[] }): void {
+  try { localStorage.setItem('our-days-suggestions-v1', JSON.stringify(value)); } catch { /* Suggestions still work in memory. */ }
+}
+
 function MonthPicker({ selected, onChange }: { selected: string[]; onChange: (dates: string[]) => void }) {
   const today = isoDateLocal(new Date());
   const currentMonth = monthStart(new Date());
@@ -328,7 +332,7 @@ function App() {
             const loaded = await loadSuggestions(opened.db);
             if (!cancelled && currentGeneration === generation) {
               setPhrases(loaded.phrases); setHistories(loaded.histories);
-              localStorage.setItem('our-days-suggestions-v1', JSON.stringify(loaded));
+              cacheSuggestions(loaded);
             }
           } catch { setLearningWarning('Suggestions are using the saved copy for now.'); }
         } catch { if (!cancelled && currentGeneration === generation) setAuthState('error'); }
@@ -342,11 +346,13 @@ function App() {
     if (!db || !user) return false;
     try {
       await recordConfirmedUsage(db, user.uid, item.request.submissionId, item.usage.descriptions, item.usage.locations, item.request.dates);
-      const loaded = await loadSuggestions(db); setPhrases(loaded.phrases); setHistories(loaded.histories);
-      localStorage.setItem('our-days-suggestions-v1', JSON.stringify(loaded));
       await removeOutbox(item.uid, item.request.submissionId);
-      return true;
     } catch { setLearningWarning('Appointment saved. Suggestions could not sync yet.'); return false; }
+    try {
+      const loaded = await loadSuggestions(db); setPhrases(loaded.phrases); setHistories(loaded.histories);
+      cacheSuggestions(loaded); setLearningWarning('');
+    } catch { setLearningWarning('Appointment saved. Suggestions are using the saved copy for now.'); }
+    return true;
   }, [db, user]);
 
   const refreshPending = useCallback(async () => {
@@ -383,7 +389,10 @@ function App() {
   }, [uid, authState, refreshPending, retryAll]);
 
   useEffect(() => {
-    if (import.meta.env.PROD && 'serviceWorker' in navigator) void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
+    if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+      void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { updateViaCache: 'none' })
+        .then(registration => registration.update()).catch(() => { /* The app remains usable online. */ });
+    }
   }, []);
 
   useEffect(() => {
@@ -398,7 +407,7 @@ function App() {
         const loaded = await loadSuggestions(db);
         if (active) {
           setPhrases(loaded.phrases); setHistories(loaded.histories);
-          localStorage.setItem('our-days-suggestions-v1', JSON.stringify(loaded));
+          cacheSuggestions(loaded); setLearningWarning('');
         }
       } catch { if (active) setLearningWarning('Suggestions are using the saved copy for now.'); }
     };

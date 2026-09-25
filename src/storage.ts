@@ -1,4 +1,4 @@
-import type { AppointmentDraft, OutboxItem } from './types.ts';
+import { emptyDraft, type AppointmentDraft, type OutboxItem } from './types.ts';
 
 const DB_NAME = 'our-days';
 const DB_VERSION = 1;
@@ -51,14 +51,31 @@ export async function listOutbox(uid: string): Promise<OutboxItem[]> {
 }
 
 export function saveDraft(draft: AppointmentDraft): void {
-  localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { /* Keep the current in-memory draft usable. */ }
 }
 
 export function loadDraft(): AppointmentDraft | null {
   try {
-    const value = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null') as AppointmentDraft | null;
-    return value && Array.isArray(value.selectedDates) && Array.isArray(value.descriptionParts) ? value : null;
+    const value = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null') as Partial<AppointmentDraft> | null;
+    if (!value || typeof value !== 'object') return null;
+    const defaults = emptyDraft();
+    const strings = (rows: unknown, maximum: number): string[] => Array.isArray(rows)
+      ? rows.filter((row): row is string => typeof row === 'string').slice(0, maximum)
+      : [];
+    const duration = [30, 60, 120].includes(Number(value.durationMinutes))
+      ? Number(value.durationMinutes) as AppointmentDraft['durationMinutes']
+      : defaults.durationMinutes;
+    return {
+      selectedDates: strings(value.selectedDates, 20).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)),
+      allDay: typeof value.allDay === 'boolean' ? value.allDay : defaults.allDay,
+      time: typeof value.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value.time) ? value.time : defaults.time,
+      durationMinutes: duration,
+      descriptionParts: strings(value.descriptionParts, 20),
+      locationParts: strings(value.locationParts, 10),
+    };
   } catch { return null; }
 }
 
-export function clearDraft(): void { localStorage.removeItem(DRAFT_KEY); }
+export function clearDraft(): void {
+  try { localStorage.removeItem(DRAFT_KEY); } catch { /* Nothing else needs to be cleared. */ }
+}

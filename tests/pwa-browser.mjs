@@ -47,7 +47,7 @@ try {
     await caches.open('our-basket-phone-sentinel');
     await navigator.serviceWorker.ready;
   });
-  await page.waitForFunction(async () => (await caches.keys()).includes('our-days-v1'));
+  await page.waitForFunction(async () => (await caches.keys()).includes('our-days-v2'));
   if (!await page.evaluate(() => Boolean(navigator.serviceWorker.controller))) {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
@@ -64,7 +64,7 @@ try {
       controller: Boolean(navigator.serviceWorker.controller),
       cacheNames: await caches.keys(),
       entries: await (async () => {
-        const cache = await caches.open('our-days-v1');
+        const cache = await caches.open('our-days-v2');
         return (await cache.keys()).map(request => request.url);
       })(),
       body: document.body.innerText,
@@ -73,7 +73,7 @@ try {
       href: location.href,
       resources: performance.getEntriesByType('resource').map(entry => entry.name),
       cached: await (async () => {
-        const cache = await caches.open('our-days-v1');
+        const cache = await caches.open('our-days-v2');
         const rows = [];
         for (const request of await cache.keys()) {
           const response = await cache.match(request);

@@ -1,4 +1,4 @@
-const CACHE = 'our-days-v1';
+const CACHE = 'our-days-v2';
 const PREFIX = 'our-days-';
 const ROOT = self.registration.scope;
 
@@ -15,9 +15,10 @@ async function cacheShell(cache, response) {
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
-    await cache.addAll([ROOT, new URL('manifest.webmanifest', ROOT), new URL('icon.svg', ROOT)]);
-    const response = await cache.match(ROOT);
-    if (response) await cacheShell(cache, response);
+    await cache.addAll([new URL('manifest.webmanifest', ROOT), new URL('icon.svg', ROOT)]);
+    const response = await fetch(ROOT, { cache: 'reload' });
+    if (!response.ok) throw new Error('Could not cache the app shell.');
+    await cacheShell(cache, response);
     await self.skipWaiting();
   })());
 });
@@ -34,21 +35,12 @@ self.addEventListener('fetch', event => {
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE);
-      const cached = await cache.match(ROOT);
-      if (cached) {
-        event.waitUntil((async () => {
-          try {
-            const fresh = await fetch(request);
-            if (fresh.ok) await cacheShell(cache, fresh);
-          } catch { /* Keep the complete cached shell while offline. */ }
-        })());
-        return cached;
-      }
       try {
         const fresh = await fetch(request);
-        if (fresh.ok) await cacheShell(cache, fresh.clone());
+        if (!fresh.ok) return await cache.match(ROOT) || fresh;
+        event.waitUntil(cacheShell(cache, fresh.clone()).catch(() => { /* Keep the previous complete shell. */ }));
         return fresh;
-      } catch { return Response.error(); }
+      } catch { return await cache.match(ROOT) || Response.error(); }
     })());
     return;
   }

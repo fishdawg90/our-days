@@ -6,7 +6,7 @@ import {
 import {
   collection, doc, getDoc, getDocFromCache, getDocs, getDocsFromCache, initializeFirestore, limit, orderBy,
   persistentLocalCache, persistentMultipleTabManager, query, runTransaction, serverTimestamp,
-  where, type Firestore, type Query, type QuerySnapshot,
+  type Firestore, type Query, type QuerySnapshot,
 } from 'firebase/firestore';
 import { DESCRIPTION_SEEDS, FIREBASE_APP_NAME, FIREBASE_CONFIG, HOUSEHOLD_ID, LOCATION_SEEDS } from './config.ts';
 import { cleanPhrase, normalisePhrase, phraseId } from './domain.ts';
@@ -51,18 +51,19 @@ async function getDocsWithCacheFallback(source: Query): Promise<QuerySnapshot> {
 
 export async function loadSuggestions(db: Firestore): Promise<{ phrases: Phrase[]; histories: HistoryRecord[] }> {
   const phraseCollection = collection(db, 'households', HOUSEHOLD_ID, 'appointmentPhrases');
-  const descriptionQuery = query(phraseCollection, where('kind', '==', 'description'), orderBy('lastUsedAt', 'desc'), limit(100));
-  const locationQuery = query(phraseCollection, where('kind', '==', 'location'), orderBy('lastUsedAt', 'desc'), limit(100));
+  // This is intentionally a small household collection. Reading it directly
+  // avoids making quick suggestions depend on a composite Firestore index.
+  const phraseQuery = query(phraseCollection, limit(250));
   const historyQuery = query(collection(db, 'households', HOUSEHOLD_ID, 'appointmentHistory'), orderBy('submittedAt', 'desc'), limit(200));
-  const [descriptionRows, locationRows, historyRows] = await Promise.all([
-    getDocsWithCacheFallback(descriptionQuery),
-    getDocsWithCacheFallback(locationQuery),
+  const [phraseRows, historyRows] = await Promise.all([
+    getDocsWithCacheFallback(phraseQuery),
     getDocsWithCacheFallback(historyQuery),
   ]);
+  const learned = phraseRows.docs.map(row => row.data() as Phrase)
+    .filter(row => row.kind === 'description' || row.kind === 'location');
   const phrases = [
     ...seeds('description'), ...seeds('location'),
-    ...descriptionRows.docs.map(row => row.data() as Phrase),
-    ...locationRows.docs.map(row => row.data() as Phrase),
+    ...learned,
   ];
   const histories = historyRows.docs.map(row => {
     const data = row.data();

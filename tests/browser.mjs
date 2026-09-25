@@ -37,6 +37,13 @@ try {
   await page.goto(baseURL);
   await page.getByText('Local test mode — no Google events are created.').waitFor();
 
+  // A partial or older saved draft must be repaired instead of blanking the app on refresh.
+  await page.evaluate(() => localStorage.setItem('our-days-draft-v1', JSON.stringify({
+    selectedDates: [], descriptionParts: [], time: 'not-a-time', durationMinutes: 45,
+  })));
+  await page.reload();
+  await page.getByRole('heading', { name: 'Choose your days' }).waitFor();
+
   // Past dates are unavailable; one tap waits for an end and the second creates a range.
   if (await page.locator('.month-section h2').count() < 2)
     throw new Error('The date view should show several clearly labelled months at once.');

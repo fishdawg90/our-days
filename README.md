@@ -6,14 +6,14 @@ The frontend is designed for `https://fishdawg90.github.io/our-days/`. It reuses
 
 ## Current integration status
 
-The application, Worker, offline outbox, rules, index, and deployment are live. The shared calendar, no-role service account, encrypted Cloudflare secrets, Firestore rules, and composite index were configured on 25 September 2026. Ross then created a real appointment through the deployed app and confirmed that it reached the shared Google Calendar. Automated Calendar API edge-case tests still use mocked upstream responses; the real event is the separate end-to-end integration evidence.
+The application, Worker, offline outbox, rules, and deployment are live. The shared calendar, no-role service account, encrypted Cloudflare secrets, and Firestore rules were configured on 25 September 2026. Ross then created a real appointment through the deployed app and confirmed that it reached the shared Google Calendar. Automated Calendar API edge-case tests still use mocked upstream responses; the real event is the separate end-to-end integration evidence. A composite index was also created during setup, but the app no longer depends on it.
 
 No new Google, Firebase, Cloudflare, or GitHub account is needed. The setup adds resources inside the existing accounts:
 
 - a secondary Google Calendar owned by one of the users;
 - a no-role Google service account in `la-spesa-5cc7a`;
 - the separate `our-days-calendar` Worker;
-- two isolated Firestore collections and one index; and
+- two isolated Firestore collections; and
 - the `fishdawg90/our-days` GitHub Pages site.
 
 ## Local development
@@ -100,18 +100,18 @@ Invoke-RestMethod https://our-days-calendar.mckibbon-ross.workers.dev/health
 
 `ready` must be `true`. Browser CORS is restricted to `https://fishdawg90.github.io`; authorization still comes from a valid Firebase ID token plus the existing Firestore household member document.
 
-### 4. Deploy the isolated Firestore rules and index
+### 4. Deploy the isolated Firestore rules
 
 Review `firestore.rules` before deployment. It preserves the existing shopping collections and adds only `appointmentPhrases` and `appointmentHistory`. Then authenticate to the existing Firebase account and deploy only rules and indexes:
 
 ```powershell
 pnpm dlx firebase-tools login
-pnpm dlx firebase-tools deploy --only "firestore:rules,firestore:indexes" --project la-spesa-5cc7a
+pnpm dlx firebase-tools deploy --only firestore:rules --project la-spesa-5cc7a
 ```
 
-This command does not deploy Firebase Hosting or create another Firebase project. Phrase queries keep an active window of at most 100 records per kind; ranking reads at most 200 recent history submissions. History documents are append-only for idempotency, so the database itself is not claimed to be permanently capped.
+This command does not deploy Firebase Hosting or create another Firebase project. Phrase queries read at most 250 small household phrase records and ranking reads at most 200 recent history submissions. History documents are append-only for idempotency, so the database itself is not claimed to be permanently capped.
 
-The same change can be made manually in Firebase Console. Publish the complete `firestore.rules` file on **Firestore Database → Rules**, then create one collection-scoped composite index for collection ID `appointmentPhrases`: `kind` ascending followed by `lastUsedAt` descending. This was the method used for the live deployment.
+The same change can be made manually in Firebase Console by publishing the complete `firestore.rules` file on **Firestore Database → Rules**. No composite index is required for quick recommendations; the index created during the original setup may remain because it is harmless.
 
 ### 5. Frontend hosting (already configured)
 
