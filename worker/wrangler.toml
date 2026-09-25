@@ -3,8 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2026-09-25"
 
 [vars]
-CALENDAR_ID = "REPLACE_WITH_SHARED_CALENDAR_ID"
 FIREBASE_PROJECT_ID = "la-spesa-5cc7a"
 
-# Set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY with `wrangler secret put`.
+# Set CALENDAR_ID, GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY with `wrangler secret put`.
 # Never place the service-account private key in this file.

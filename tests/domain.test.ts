@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addPhrase, rankPhrases, toggleDate, validateDraft } from '../src/domain.ts';
+import { addPhrase, dateRange, rankPhrases, toggleDate, validateDraft } from '../src/domain.ts';
 import type { AppointmentDraft, HistoryRecord, Phrase, PhraseKind } from '../src/types.ts';
 
 const NOW = Date.parse('2026-02-01T12:00:00Z');
@@ -36,6 +36,13 @@ describe('phrase input', () => {
 });
 
 describe('date limits', () => {
+  it('builds an inclusive contiguous range and honours the 20-day cap', () => {
+    expect(dateRange('2026-09-28', '2026-10-02')).toEqual([
+      '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02',
+    ]);
+    expect(dateRange('2026-09-01', '2026-10-01')).toHaveLength(20);
+  });
+
   it('does not toggle more than 20 selected dates', () => {
     const dates = Array.from({ length: 20 }, (_, index) => `2026-03-${String(index + 1).padStart(2, '0')}`);
     expect(toggleDate(dates, '2026-03-21')).toEqual(dates);

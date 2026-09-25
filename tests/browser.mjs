@@ -5,6 +5,8 @@ import { existsSync } from 'node:fs';
 
 const port = 5174;
 const baseURL = `http://127.0.0.1:${port}/our-days/`;
+const isoLocal = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const daysFromToday = count => { const date = new Date(); date.setHours(12, 0, 0, 0); date.setDate(date.getDate() + count); return isoLocal(date); };
 const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
   cwd: process.cwd(), env: { ...process.env, VITE_E2E_MODE: 'true' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -35,15 +37,57 @@ try {
   await page.goto(baseURL);
   await page.getByText('Local test mode — no Google events are created.').waitFor();
 
-  // Single-day timed appointment, keyboard input, phrase selection and direct save.
-  await page.getByRole('button', { name: /^Tomorrow/ }).click();
+  // Past dates are unavailable; one tap waits for an end and the second creates a range.
+  if (!await page.getByRole('button', { name: 'Previous month' }).isDisabled())
+    throw new Error('The calendar must not navigate into past months.');
+  const pastCells = page.locator('.month-grid button[data-past="true"]');
+  for (const cell of await pastCells.all()) if (await cell.isEnabled()) throw new Error('A past date remained selectable.');
+  await page.getByRole('button', { name: /^Today/ }).click();
+  await page.getByText('Tap a later day for a range, or continue for one day.').waitFor();
+  const rangeEnd = page.locator(`[data-iso="${daysFromToday(4)}"]`);
+  await rangeEnd.click();
+  if (await page.locator('.month-grid button[aria-pressed="true"]').count() !== 5)
+    throw new Error('Selecting an end date did not fill the inclusive range.');
+  const adjustedEnd = page.locator(`[data-iso="${daysFromToday(2)}"]`);
+  const fromBox = await rangeEnd.boundingBox(); const toBox = await adjustedEnd.boundingBox();
+  if (!fromBox || !toBox) throw new Error('Range endpoints were not visible for drag testing.');
+  await page.mouse.move(fromBox.x + fromBox.width / 2, fromBox.y + fromBox.height / 2);
+  await page.mouse.down();
+  const dragActivated = await page.locator('.month-grid button.active-drag').count();
+  await page.mouse.move(toBox.x + toBox.width / 2, toBox.y + toBox.height / 2, { steps: 5 });
+  const countBeforeRelease = await page.locator('.month-grid button[aria-pressed="true"]').count();
+  await page.mouse.up();
+  const adjustedCount = await page.locator('.month-grid button[aria-pressed="true"]').count();
+  if (adjustedCount !== 3) {
+    const selectedIsos = await page.locator('.month-grid button[aria-pressed="true"]').evaluateAll(elements => elements.map(element => element.getAttribute('data-iso')));
+    throw new Error(`Dragging the range end did not adjust the selected range (active ${dragActivated}, before release ${countBeforeRelease}, final ${adjustedCount}: ${selectedIsos.join(', ')}).`);
+  }
+  await page.getByRole('button', { name: 'Continue with 3 days' }).click();
+  await page.getByRole('heading', { name: 'Description' }).waitFor();
+  const workTrip = page.getByRole('button', { name: 'Work Trip' });
+  await workTrip.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  await workTrip.click();
   await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByText('3 separate all-day events', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Skip location' }).click();
+  await page.getByText('3 separate events were confirmed.', { exact: true }).waitFor();
+
+  // Single-day timed appointment uses the ten-minute one-finger control.
+  await page.getByRole('button', { name: 'Another appointment' }).click();
+  await page.getByRole('button', { name: /^Tomorrow/ }).click();
+  await page.getByRole('button', { name: 'Continue with this day' }).click();
   await page.getByRole('heading', { name: 'When?' }).waitFor();
   await page.getByRole('button', { name: 'Set a time' }).getAttribute('aria-pressed').then(value => {
     if (value !== 'true') throw new Error('Timed entry should be the single-date default.');
   });
+  await page.getByRole('slider', { name: 'Start time' }).fill('61');
+  await page.locator('output').getByText('10:10', { exact: true }).waitFor();
+  await page.getByRole('complementary', { name: 'Appointment so far' }).getByText('10:10', { exact: true }).waitFor();
   await page.getByRole('button', { name: '30 min' }).click();
-  await page.getByRole('button', { name: 'Continue' }).click();
+  const timeAction = page.getByRole('button', { name: 'Continue to description' });
+  const actionRect = await timeAction.evaluate(element => { const rect = element.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom, height: innerHeight }; });
+  if (actionRect.top < 0 || actionRect.bottom > actionRect.height) throw new Error('The time-page action was not fixed inside the viewport.');
+  await timeAction.click();
   const description = page.getByRole('textbox', { name: 'Description' });
   await description.fill('Family checkup');
   await description.press('Enter');
@@ -51,37 +95,25 @@ try {
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('textbox', { name: 'Location' }).fill('Royal');
   await page.getByRole('button', { name: 'Royal Surrey' }).click();
-  await page.getByText('Family checkup Dentist', { exact: true }).waitFor();
-  await page.getByText('09:00 · 30 min', { exact: true }).waitFor();
+  await page.locator('.summary-card').getByText('Family checkup Dentist', { exact: true }).waitFor();
+  await page.getByText('10:10 · 30 min', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Add appointment' }).click();
   await page.getByRole('heading', { name: 'Test save confirmed locally.' }).waitFor();
-
-  // Multi-date skips time and creates separate all-day events.
-  await page.getByRole('button', { name: 'Another appointment' }).click();
-  await page.getByRole('button', { name: /^Today/ }).click();
-  await page.getByRole('button', { name: /^Tomorrow/ }).click();
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('heading', { name: 'What is it?' }).waitFor();
-  await page.getByRole('button', { name: 'Work Trip' }).click();
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByText('2 separate all-day events', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Skip location' }).click();
-  await page.getByText('2 separate events were confirmed.', { exact: true }).waitFor();
 
   // Draft date survives refresh and the calendar is keyboard-operable.
   await page.getByRole('button', { name: 'Another appointment' }).click();
   const nextMonth = page.getByRole('button', { name: 'Next month' });
   await nextMonth.focus(); await page.keyboard.press('Enter');
-  const firstDay = page.locator('.month-grid button').first();
+  const firstDay = page.locator('.month-grid button:not([disabled])').first();
   await firstDay.focus(); await page.keyboard.press('Enter');
   await page.reload();
-  await page.getByRole('button', { name: 'Continue' }).isEnabled().then(enabled => {
+  await page.getByRole('button', { name: /^Continue with/ }).isEnabled().then(enabled => {
     if (!enabled) throw new Error('Saved draft date was not restored after refresh.');
   });
 
   // An offline save remains honest, then retries when connectivity returns.
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: /^Continue with/ }).click();
+  await page.getByRole('button', { name: 'Continue to description' }).click();
   await page.getByRole('button', { name: 'Scan' }).click();
   await page.getByRole('button', { name: 'Continue' }).click();
   await context.setOffline(true);
@@ -91,7 +123,7 @@ try {
   await context.setOffline(false);
   await page.getByRole('heading', { name: 'Test save confirmed locally.' }).waitFor({ timeout: 10_000 });
 
-  console.log('Browser flow passed: timed, multi-date, keyboard, draft refresh, offline outbox retry.');
+  console.log('Browser flow passed: future-only range/drag, ten-minute time, sticky flow, keyboard, draft and offline retry.');
 } finally {
   await browser?.close();
   server.kill();

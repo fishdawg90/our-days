@@ -30,6 +30,17 @@ export function toggleDate(selected: string[], date: string, max = 20): string[]
   return [...selected, date].sort();
 }
 
+export function dateRange(start: string, end: string, max = 20): string[] {
+  if (end < start || max < 1) return [start].slice(0, max);
+  const dates: string[] = [];
+  let current = start;
+  while (current <= end && dates.length < max) {
+    dates.push(current);
+    current = addDays(current, 1);
+  }
+  return dates;
+}
+
 export function formatDate(iso: string, style: 'short' | 'long' = 'long'): string {
   const [year, month, day] = iso.split('-').map(Number);
   return new Intl.DateTimeFormat('en-GB', style === 'short'

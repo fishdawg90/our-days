@@ -1,12 +1,12 @@
 # Our Days
 
-Our Days is a small, installable appointment-entry app for Ross and Franci. It opens on a calendar, creates one timed or all-day event for a single date, and creates separate all-day events when several dates are selected. It writes only to one fixed, user-owned Google Calendar.
+Our Days is a small, installable appointment-entry app for Ross and Franci. It opens on a future-only calendar, creates one timed or all-day event for a single date, and creates separate all-day events for a selected continuous range. Range endpoints can be dragged to adjust them, and timed appointments use a one-finger control in ten-minute increments. It writes only to one fixed, user-owned Google Calendar.
 
 The frontend is designed for `https://fishdawg90.github.io/our-days/`. It reuses the existing Firebase project `la-spesa-5cc7a`, Firebase app name, email/password accounts, and `households/home/members/{uid}` authorization used by Our Basket. It never creates household membership.
 
 ## Current integration status
 
-The application, Worker, offline outbox, rules, and deployment files are complete and locally tested. The automated Google Calendar tests use mocked upstream responses; they do **not** prove a live Google event was created. A deployed frontend is not calendar-connected until the one-time Google Calendar, service account, Cloudflare Worker, and Firestore steps below are complete.
+The application, Worker, offline outbox, rules, index, and deployment are live. The shared calendar, no-role service account, encrypted Cloudflare secrets, Firestore rules, and composite index were configured on 25 September 2026. Ross then created a real appointment through the deployed app and confirmed that it reached the shared Google Calendar. Automated Calendar API edge-case tests still use mocked upstream responses; the real event is the separate end-to-end integration evidence.
 
 No new Google, Firebase, Cloudflare, or GitHub account is needed. The setup adds resources inside the existing accounts:
 
@@ -53,23 +53,22 @@ Share the calendar with the other person so both accounts can see it. Both peopl
 
 ### 2. Enable Calendar API and create a no-role service account
 
-Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install), then sign in once:
+This deployment was configured in Google Cloud Console: enable the Google Calendar API in `la-spesa-5cc7a`, create `our-days-calendar`, assign no IAM role, then create a JSON key. The equivalent CLI commands are:
 
 ```powershell
 gcloud auth login
 gcloud services enable calendar-json.googleapis.com --project=la-spesa-5cc7a
 gcloud iam service-accounts create our-days-calendar --display-name="Our Days Calendar writer" --project=la-spesa-5cc7a
-New-Item -ItemType Directory -Force .secrets | Out-Null
-gcloud iam service-accounts keys create .secrets/our-days-service-account.json --iam-account=our-days-calendar@la-spesa-5cc7a.iam.gserviceaccount.com --project=la-spesa-5cc7a
+gcloud iam service-accounts keys create "$env:LOCALAPPDATA\Temp\our-days-service-account.json" --iam-account=our-days-calendar@la-spesa-5cc7a.iam.gserviceaccount.com --project=la-spesa-5cc7a
 ```
 
-The service account needs **no Google Cloud IAM role**, no Project Editor access, and no domain-wide delegation. Its only authority comes from the single calendar shared in the next step. Keep `.secrets/our-days-service-account.json` local; `.gitignore` excludes it. Delete and recreate the key immediately if it is ever exposed.
+The service account needs **no Google Cloud IAM role**, no Project Editor access, and no domain-wide delegation. Its only authority comes from the single calendar shared in the next step. Keep the temporary JSON key local and remove it after its values are stored in Cloudflare. Delete and recreate the Google key immediately if it is ever exposed.
 
 Return to the secondary calendar's **Settings and sharing → Share with specific people**, add `our-days-calendar@la-spesa-5cc7a.iam.gserviceaccount.com`, and grant **Make changes to events**. Do not grant broader calendar-account access.
 
 ### 3. Configure and deploy the Cloudflare Worker
 
-In `worker/wrangler.toml`, replace `REPLACE_WITH_SHARED_CALENDAR_ID` with the Calendar ID from step 1. The fixed Worker name is `our-days-calendar`; this is separate from the existing photo Worker.
+The Calendar ID is stored as an encrypted Worker secret, keeping it out of the public repository. The fixed Worker name is `our-days-calendar`; this is separate from the existing photo Worker.
 
 Authenticate Wrangler once using the existing Cloudflare account:
 
@@ -78,16 +77,19 @@ pnpm --dir worker exec wrangler login
 pnpm --dir worker exec wrangler deploy
 ```
 
-The first deploy creates the Worker before any secret value is piped to Wrangler. Its health response remains `ready: false` until both secrets exist.
+The first deploy creates the Worker before any secret value is piped to Wrangler. Its health response remains `ready: false` until all three secrets exist.
 
-Load the two credentials as encrypted Worker secrets without copying them into source:
+Load the calendar ID and two credentials as encrypted Worker secrets without copying them into source. Put the Calendar ID from step 1 into the temporary text file named below, without additional text:
 
 ```powershell
-$ourDaysCredentials = Get-Content -Raw .secrets/our-days-service-account.json | ConvertFrom-Json
+$ourDaysCalendarId = Get-Content -Raw "$env:LOCALAPPDATA\Temp\our-days-calendar-id.txt"
+$ourDaysCalendarId.Trim() | pnpm --dir worker exec wrangler secret put CALENDAR_ID
+$ourDaysCredentials = Get-Content -Raw "$env:LOCALAPPDATA\Temp\our-days-service-account.json" | ConvertFrom-Json
 $ourDaysCredentials.client_email | pnpm --dir worker exec wrangler secret put GOOGLE_SERVICE_ACCOUNT_EMAIL
 $ourDaysCredentials.private_key | pnpm --dir worker exec wrangler secret put GOOGLE_PRIVATE_KEY
-Remove-Variable ourDaysCredentials
+Remove-Variable ourDaysCalendarId,ourDaysCredentials
 pnpm --dir worker exec wrangler deploy
+Remove-Item -LiteralPath "$env:LOCALAPPDATA\Temp\our-days-service-account.json", "$env:LOCALAPPDATA\Temp\our-days-calendar-id.txt" -Force
 ```
 
 Then check readiness. This endpoint exposes booleans only, never secret values:
@@ -109,15 +111,17 @@ pnpm dlx firebase-tools deploy --only "firestore:rules,firestore:indexes" --proj
 
 This command does not deploy Firebase Hosting or create another Firebase project. Phrase queries keep an active window of at most 100 records per kind; ranking reads at most 200 recent history submissions. History documents are append-only for idempotency, so the database itself is not claimed to be permanently capped.
 
+The same change can be made manually in Firebase Console. Publish the complete `firestore.rules` file on **Firestore Database → Rules**, then create one collection-scoped composite index for collection ID `appointmentPhrases`: `kind` ascending followed by `lastUsedAt` descending. This was the method used for the live deployment.
+
 ### 5. Frontend hosting (already configured)
 
 The repository already exists at [fishdawg90/our-days](https://github.com/fishdawg90/our-days), and GitHub Pages is configured to use the included **Deploy GitHub Pages** workflow. No new repository or hosting setup is needed. Future pushes to `main` run all unit and Worker tests before building and publishing `dist`. Check the [deployment workflow](https://github.com/fishdawg90/our-days/actions) for its current status.
 
 The Pages URL is [Our Days](https://fishdawg90.github.io/our-days/). Firebase Auth must continue to allow `fishdawg90.github.io` as an authorized domain. Users sign in with an existing household email/password account; do not create a new member UID from this app.
 
-## Live verification before relying on it
+## Live verification
 
-Automated tests are not a live Google verification. After all setup steps:
+The initial live write was confirmed during setup. For later credential rotations or deployment changes, repeat this check:
 
 1. Open the deployed app while online and sign in with an existing household member account.
 2. Add a clearly named event such as `Our Days integration test`, a few minutes in the future.
