@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { ArrowLeft, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, CloudOff, LogOut, MapPin, Minus, Plus, RotateCw, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, CalendarDays, Check, Clock3, CloudOff, LogOut, MapPin, Minus, Plus, RotateCw, X } from 'lucide-react';
 import type { Auth, User } from 'firebase/auth';
 import type { Firestore } from 'firebase/firestore';
 import { IS_E2E } from './config.ts';
@@ -28,27 +29,15 @@ function startOfWeek(date: Date): Date {
   result.setDate(result.getDate() - ((result.getDay() + 6) % 7));
   return result;
 }
-function endOfWeek(date: Date): Date {
-  const result = startOfWeek(date);
-  result.setDate(result.getDate() + 6);
-  return result;
-}
-function sameMonth(left: Date, right: Date): boolean {
-  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth();
+function BottomActions({ children, className = 'sticky-actions' }: { children: ReactNode; className?: string }) {
+  return createPortal(<div className={className}>{children}</div>, document.body);
 }
 
 function MonthPicker({ selected, onChange }: { selected: string[]; onChange: (dates: string[]) => void }) {
   const today = isoDateLocal(new Date());
-  const tomorrow = addDays(today, 1);
   const currentMonth = monthStart(new Date());
-  const [month, setMonth] = useState(currentMonth);
-  const isCurrentMonth = sameMonth(month, currentMonth);
-  const firstVisible = isCurrentMonth ? startOfWeek(dateFromIso(today)) : startOfWeek(month);
-  const lastVisible = endOfWeek(new Date(month.getFullYear(), month.getMonth() + 1, 0, 12));
-  const cells: string[] = [];
-  for (let date = firstVisible; date <= lastVisible; date = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 12)) {
-    cells.push(isoDateLocal(date));
-  }
+  const [monthsShown, setMonthsShown] = useState(6);
+  const months = Array.from({ length: monthsShown }, (_, index) => moveMonth(currentMonth, index));
   const drag = useRef<{ endpoint: 'start' | 'end'; origin: string; start: string; end: string; moved: boolean } | null>(null);
   const suppressClick = useRef(false);
   const [dragging, setDragging] = useState<'start' | 'end' | null>(null);
@@ -101,48 +90,48 @@ function MonthPicker({ selected, onChange }: { selected: string[]; onChange: (da
     drag.current = null; setDragging(null);
   };
   return <>
-    <div className="quick-row" aria-label="Quick dates">
-      {[['Today', today], ['Tomorrow', tomorrow]].map(([name, iso]) =>
-        <button type="button" className="quick-date" aria-pressed={selected.includes(iso)} key={iso} onClick={() => choose(iso)}>
-          <span>{name}</span><strong>{new Date(`${iso}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</strong>
-        </button>)}
-    </div>
-    <section className={`calendar-card${dragging ? ' dragging' : ''}`} aria-label="Choose appointment dates"
-      onPointerMove={dragMove} onPointerUp={finishDrag} onPointerCancel={() => { drag.current = null; setDragging(null); }}>
-      <div className="month-head">
-        <button className="icon-button" type="button" aria-label="Previous month" disabled={isCurrentMonth}
-          onClick={() => setMonth(value => moveMonth(value, -1))}><ChevronLeft /></button>
-        <h2 aria-live="polite">{month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h2>
-        <button className="icon-button" type="button" aria-label="Next month" onClick={() => setMonth(value => moveMonth(value, 1))}><ChevronRight /></button>
-      </div>
-      <div className="weekdays" aria-hidden="true">{['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, index) => <span key={`${day}${index}`}>{day}</span>)}</div>
-      <div className="month-grid">
-        {cells.map((iso, index) => {
-          const date = dateFromIso(iso);
-          const day = date.getDate();
-          const chosen = selected.includes(iso);
-          const endpoint = selected.length > 1 ? iso === start ? 'start' : iso === end ? 'end' : null : null;
-          const outside = !sameMonth(date, month);
-          const past = iso < today;
-          const showMonth = index === 0 || day === 1;
-          return <button type="button" key={iso} data-iso={iso} data-past={past || undefined}
-            aria-label={`${formatDate(iso)}${past ? ', unavailable' : endpoint ? `, ${endpoint} of selected range, drag to adjust` : ''}`}
-            aria-pressed={chosen} disabled={past}
-            className={`${outside ? 'outside ' : ''}${past ? 'past ' : ''}${iso === today ? 'today ' : ''}${chosen ? 'selected ' : ''}${endpoint ? `range-${endpoint} ` : chosen ? 'range-middle ' : ''}${dragging === endpoint ? 'active-drag' : ''}`}
-            onPointerDown={event => endpoint && beginDrag(endpoint, event)}
-            onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } choose(iso); }}>
-            {showMonth && <small>{date.toLocaleDateString('en-GB', { month: 'short' })}</small>}
-            <strong>{day}</strong>
-            {endpoint && <span className="drag-grip" aria-hidden="true" />}
-          </button>;
-        })}
-      </div>
-    </section>
     {selected.length > 0 && <div className={`range-feedback${selected.length === 1 ? ' waiting' : ''}`} aria-live="polite">
-      <div><strong>{selected.length === 1 ? `${formatDate(start, 'short')} selected` : `${selected.length}-day range`}</strong>
-        <span>{selected.length === 1 ? 'Tap a later day for a range, or continue for one day.' : `${formatDate(start, 'short')} – ${formatDate(end, 'short')}. Drag either end to adjust.`}</span></div>
+      <span className="range-dot" aria-hidden="true" />
+      <div><strong>{selected.length === 1 ? `${formatDate(start, 'short')} is your start date` : `${selected.length} days selected`}</strong>
+        <span>{selected.length === 1 ? 'Tap any later date to select the whole range.' : `${formatDate(start, 'short')} – ${formatDate(end, 'short')} · drag either end to adjust.`}</span></div>
       <button type="button" onClick={() => onChange([])} aria-label="Clear selected dates"><X size={16} /> Clear</button>
     </div>}
+    <section className={`calendar-list${dragging ? ' dragging' : ''}`} aria-label="Choose appointment dates"
+      onPointerMove={dragMove} onPointerUp={finishDrag} onPointerCancel={() => { drag.current = null; setDragging(null); }}>
+      {months.map((month, monthIndex) => {
+        const monthDays = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+        const weekStart = startOfWeek(dateFromIso(today));
+        const firstDay = monthIndex === 0 && weekStart.getMonth() === month.getMonth() ? weekStart.getDate() : 1;
+        const firstDate = new Date(month.getFullYear(), month.getMonth(), firstDay, 12);
+        const leading = (firstDate.getDay() + 6) % 7;
+        const cells = [...Array.from({ length: leading }, (_, index) => `blank-${index}`),
+          ...Array.from({ length: monthDays - firstDay + 1 }, (_, index) => isoDateLocal(new Date(month.getFullYear(), month.getMonth(), firstDay + index, 12)))];
+        return <section className="month-section" key={`${month.getFullYear()}-${month.getMonth()}`} aria-labelledby={`month-${monthIndex}`}>
+          <h2 id={`month-${monthIndex}`}>{month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h2>
+          <div className="weekdays" aria-hidden="true">{['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, index) => <span key={`${day}${index}`}>{day}</span>)}</div>
+          <div className="month-grid">
+            {cells.map(cell => {
+              if (cell.startsWith('blank-')) return <span className="calendar-blank" key={cell} />;
+              const date = dateFromIso(cell);
+              const chosen = selected.includes(cell);
+              const endpoint = selected.length > 1 ? cell === start ? 'start' : cell === end ? 'end' : null : null;
+              const anchor = selected.length === 1 && cell === start;
+              const past = cell < today;
+              return <button type="button" key={cell} data-iso={cell} data-past={past || undefined}
+                aria-label={`${formatDate(cell)}${past ? ', unavailable' : anchor ? ', start selected, choose an end date' : endpoint ? `, ${endpoint} of selected range, drag to adjust` : ''}`}
+                aria-pressed={chosen} disabled={past}
+                className={`${past ? 'past ' : ''}${cell === today ? 'today ' : ''}${chosen ? 'selected ' : ''}${anchor ? 'range-anchor ' : endpoint ? `range-${endpoint} ` : chosen ? 'range-middle ' : ''}${dragging === endpoint ? 'active-drag' : ''}`}
+                onPointerDown={event => { if (endpoint) beginDrag(endpoint, event); }}
+                onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } choose(cell); }}>
+                <strong>{date.getDate()}</strong>
+                {endpoint && <span className="drag-grip" aria-hidden="true" />}
+              </button>;
+            })}
+          </div>
+        </section>;
+      })}
+      <button type="button" className="show-more-months" onClick={() => setMonthsShown(value => value + 6)}>Show 6 more months</button>
+    </section>
   </>;
 }
 
@@ -188,10 +177,10 @@ function PhraseStep({ kind, title, hint, parts, setParts, phrases, histories, ev
     <p className="suggest-label">Suggestions</p>
     <PhraseCloud kind={kind} phrases={phrases} histories={histories} selected={parts} query={value} eventDate={eventDate} onChoose={choose} />
     {beforeActions}
-    <div className="flow-actions">
+    <BottomActions className="flow-actions">
       {onSkip && <button type="button" className="quiet-button" onClick={onSkip}>Skip location</button>}
       <button type="button" className="primary-button" disabled={actionDisabled || (kind === 'description' && !parts.length && !cleanPhrase(value))} onClick={continueWithInput}>{actionLabel}</button>
-    </div>
+    </BottomActions>
   </section>;
 }
 
@@ -268,17 +257,15 @@ function AppointmentStrip({ draft, showTime }: { draft: AppointmentDraft; showTi
   if (!draft.selectedDates.length) return null;
   const first = draft.selectedDates[0];
   const last = draft.selectedDates[draft.selectedDates.length - 1];
-  const dateText = draft.selectedDates.length === 1
-    ? formatDate(first, 'short')
-    : `${formatDate(first, 'short')} – ${formatDate(last, 'short')} · ${draft.selectedDates.length} days`;
+  const shortDate = (iso: string) => dateFromIso(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const dateText = draft.selectedDates.length === 1 ? shortDate(first) : `${shortDate(first)}–${shortDate(last)}`;
+  const facts = [dateText];
+  if (showTime && draft.selectedDates.length === 1) facts.push(draft.allDay ? 'All day' : draft.time);
+  if (draft.descriptionParts.length) facts.push(draft.descriptionParts.join(' '));
+  if (draft.locationParts.length) facts.push(draft.locationParts.join(' '));
   return <aside className="appointment-strip" aria-label="Appointment so far">
     <CalendarDays aria-hidden="true" />
-    <div className="appointment-facts">
-      <strong>{dateText}</strong>
-      {showTime && draft.selectedDates.length === 1 && <span><Clock3 />{draft.allDay ? 'All day' : draft.time}</span>}
-      {draft.descriptionParts.length > 0 && <span>{draft.descriptionParts.join(' ')}</span>}
-      {draft.locationParts.length > 0 && <span><MapPin />{draft.locationParts.join(' ')}</span>}
-    </div>
+    <strong className="appointment-line" title={facts.join(' · ')}>{facts.join(' · ')}</strong>
   </aside>;
 }
 
@@ -487,10 +474,10 @@ function App() {
         <div className="section-title"><span className="round-icon"><CalendarDays /></span><div><h1>Choose your days</h1><p>Choose one day, or a start and end date.</p></div></div>
         <MonthPicker key={monthKey} selected={draft.selectedDates} onChange={selectedDates => update({ selectedDates })} />
         {draft.selectedDates.length >= 20 && <p className="inline-note">20 dates is the maximum for one appointment.</p>}
-        <div className="sticky-actions"><button type="button" className="primary-button full" disabled={!draft.selectedDates.length}
+        <BottomActions><button type="button" className="primary-button full" disabled={!draft.selectedDates.length}
           onClick={() => setStep(draft.selectedDates.length > 1 ? 'description' : 'time')}>
           {draft.selectedDates.length > 1 ? `Continue with ${draft.selectedDates.length} days` : 'Continue with this day'}
-        </button></div>
+        </button></BottomActions>
       </section>}
 
       {step === 'time' && saveState !== 'saved' && <section className="flow-section">
@@ -500,7 +487,7 @@ function App() {
           <button type="button" aria-pressed={!draft.allDay} onClick={() => update({ allDay: false })}>Set a time</button>
         </div>
         {!draft.allDay && <TimeChooser draft={draft} update={update} />}
-        <div className="sticky-actions"><button type="button" className="primary-button full" onClick={goNext}>Continue to description</button></div>
+        <BottomActions><button type="button" className="primary-button full" onClick={goNext}>Continue to description</button></BottomActions>
       </section>}
 
       {step === 'description' && saveState !== 'saved' && <PhraseStep kind="description" title="Description" hint="Build a short description." parts={draft.descriptionParts}

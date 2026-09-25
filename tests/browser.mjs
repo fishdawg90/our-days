@@ -38,12 +38,12 @@ try {
   await page.getByText('Local test mode — no Google events are created.').waitFor();
 
   // Past dates are unavailable; one tap waits for an end and the second creates a range.
-  if (!await page.getByRole('button', { name: 'Previous month' }).isDisabled())
-    throw new Error('The calendar must not navigate into past months.');
+  if (await page.locator('.month-section h2').count() < 2)
+    throw new Error('The date view should show several clearly labelled months at once.');
   const pastCells = page.locator('.month-grid button[data-past="true"]');
   for (const cell of await pastCells.all()) if (await cell.isEnabled()) throw new Error('A past date remained selectable.');
-  await page.getByRole('button', { name: /^Today/ }).click();
-  await page.getByText('Tap a later day for a range, or continue for one day.').waitFor();
+  await page.locator(`[data-iso="${daysFromToday(0)}"]`).click();
+  await page.getByText('Tap any later date to select the whole range.').waitFor();
   const rangeEnd = page.locator(`[data-iso="${daysFromToday(4)}"]`);
   await rangeEnd.click();
   if (await page.locator('.month-grid button[aria-pressed="true"]').count() !== 5)
@@ -74,7 +74,7 @@ try {
 
   // Single-day timed appointment uses the ten-minute one-finger control.
   await page.getByRole('button', { name: 'Another appointment' }).click();
-  await page.getByRole('button', { name: /^Tomorrow/ }).click();
+  await page.locator(`[data-iso="${daysFromToday(1)}"]`).click();
   await page.getByRole('button', { name: 'Continue with this day' }).click();
   await page.getByRole('heading', { name: 'When?' }).waitFor();
   await page.getByRole('button', { name: 'Set a time' }).getAttribute('aria-pressed').then(value => {
@@ -82,7 +82,7 @@ try {
   });
   await page.getByRole('slider', { name: 'Start time' }).fill('61');
   await page.locator('output').getByText('10:10', { exact: true }).waitFor();
-  await page.getByRole('complementary', { name: 'Appointment so far' }).getByText('10:10', { exact: true }).waitFor();
+  await page.getByRole('complementary', { name: 'Appointment so far' }).getByText('10:10').waitFor();
   await page.getByRole('button', { name: '30 min' }).click();
   const timeAction = page.getByRole('button', { name: 'Continue to description' });
   const actionRect = await timeAction.evaluate(element => { const rect = element.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom, height: innerHeight }; });
@@ -97,14 +97,28 @@ try {
   await page.getByRole('button', { name: 'Royal Surrey' }).click();
   await page.locator('.summary-card').getByText('Family checkup Dentist', { exact: true }).waitFor();
   await page.getByText('10:10 · 30 min', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Add appointment' }).click();
+  const appointmentStrip = page.getByRole('complementary', { name: 'Appointment so far' });
+  const stripRect = await appointmentStrip.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, height: rect.height, viewportWidth: innerWidth };
+  });
+  if (stripRect.left < 0 || stripRect.right > stripRect.viewportWidth || stripRect.height > 42)
+    throw new Error('The compact appointment summary escaped the phone viewport or became too tall.');
+  const addAppointment = page.getByRole('button', { name: 'Add appointment' });
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  const addAction = await addAppointment.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const container = element.closest('.flow-actions');
+    return { top: rect.top, bottom: rect.bottom, height: innerHeight, position: container ? getComputedStyle(container).position : '' };
+  });
+  if (addAction.position !== 'fixed' || addAction.top < 0 || addAction.bottom > addAction.height)
+    throw new Error('The final Add appointment action was not fixed inside the viewport after scrolling.');
+  await addAppointment.click();
   await page.getByRole('heading', { name: 'Test save confirmed locally.' }).waitFor();
 
   // Draft date survives refresh and the calendar is keyboard-operable.
   await page.getByRole('button', { name: 'Another appointment' }).click();
-  const nextMonth = page.getByRole('button', { name: 'Next month' });
-  await nextMonth.focus(); await page.keyboard.press('Enter');
-  const firstDay = page.locator('.month-grid button:not([disabled])').first();
+  const firstDay = page.locator('.month-section').nth(1).locator('.month-grid button:not([disabled])').first();
   await firstDay.focus(); await page.keyboard.press('Enter');
   await page.reload();
   await page.getByRole('button', { name: /^Continue with/ }).isEnabled().then(enabled => {
