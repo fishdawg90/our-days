@@ -44,7 +44,7 @@ Small seeded personal vocabulary, with an active window of 100 phrases per kind 
 
 ## Hosting / reusable structure
 
-- New repository/site candidate: `our-days`, URL `https://fishdawg90.github.io/our-days/` (planned until created and verified).
+- New repository created: `fishdawg90/our-days`, with GitHub Actions Pages deployment configured for `https://fishdawg90.github.io/our-days/`.
 - Static GitHub Pages deployment and path-scoped PWA manifest/service worker. Cache only this app's assets and never delete other apps' caches on the shared origin.
 - Source split into household auth/config, appointment domain, phrase ranking/storage, calendar transport/outbox and UI. Document how future apps reuse accounts/membership without sharing unrelated data.
 - Cloudflare Worker name `our-days-calendar`, independent deployment/configuration in existing account. Firebase database need not store appointment bodies; only small learning records needed.

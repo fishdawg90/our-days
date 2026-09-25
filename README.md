@@ -39,6 +39,8 @@ pnpm --dir worker exec wrangler deploy --dry-run
 
 The browser suite uses a clearly labelled local-only test mode. It is gated to Vite development on localhost, never appears in the production build, and never calls Google.
 
+The production PWA smoke test verifies a cold reload after its local origin server is shut down, including cached JavaScript/CSS and cache isolation. This is strong browser-level offline evidence, but it is not a substitute for a final airplane-mode test on each real phone after deployment.
+
 ## One-time calendar and Worker setup
 
 ### 1. Create the shared secondary calendar
@@ -107,11 +109,11 @@ pnpm dlx firebase-tools deploy --only "firestore:rules,firestore:indexes" --proj
 
 This command does not deploy Firebase Hosting or create another Firebase project. Phrase queries keep an active window of at most 100 records per kind; ranking reads at most 200 recent history submissions. History documents are append-only for idempotency, so the database itself is not claimed to be permanently capped.
 
-### 5. Publish the frontend
+### 5. Frontend hosting (already configured)
 
-Push `main` to `fishdawg90/our-days`. In GitHub, open **Settings → Pages**, choose **GitHub Actions**, and run the included **Deploy GitHub Pages** workflow. The workflow runs all unit and Worker tests before building and publishing `dist`.
+The repository already exists at [fishdawg90/our-days](https://github.com/fishdawg90/our-days), and GitHub Pages is configured to use the included **Deploy GitHub Pages** workflow. No new repository or hosting setup is needed. Future pushes to `main` run all unit and Worker tests before building and publishing `dist`. Check the [deployment workflow](https://github.com/fishdawg90/our-days/actions) for its current status.
 
-The final URL is `https://fishdawg90.github.io/our-days/`. Firebase Auth must continue to allow `fishdawg90.github.io` as an authorized domain. Users sign in with an existing household email/password account; do not create a new member UID from this app.
+The Pages URL is [Our Days](https://fishdawg90.github.io/our-days/). Firebase Auth must continue to allow `fishdawg90.github.io` as an authorized domain. Users sign in with an existing household email/password account; do not create a new member UID from this app.
 
 ## Live verification before relying on it
 
