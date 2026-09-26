@@ -47,14 +47,25 @@ try {
   // Past dates are unavailable; one tap waits for an end and the second creates a range.
   if (await page.locator('.month-section h2').count() < 2)
     throw new Error('The date view should show several clearly labelled months at once.');
+  await page.getByText('End optional').waitFor();
+  const selectionState = page.locator('.date-selection-state');
+  const stateHeightBefore = await selectionState.evaluate(element => element.getBoundingClientRect().height);
   const pastCells = page.locator('.month-grid button[data-past="true"]');
   for (const cell of await pastCells.all()) if (await cell.isEnabled()) throw new Error('A past date remained selectable.');
-  await page.locator(`[data-iso="${daysFromToday(0)}"]`).click();
-  await page.getByText('Tap any later date to select the whole range.').waitFor();
+  const today = page.locator(`[data-iso="${daysFromToday(0)}"]`);
+  if (await today.getAttribute('aria-current') !== 'date') throw new Error('Today was not identified independently from selection.');
+  await today.click();
+  await page.getByText('Continue for one day, or choose an end date.').waitFor();
+  await page.getByText('Tap another day').waitFor();
+  const stateHeightAfter = await selectionState.evaluate(element => element.getBoundingClientRect().height);
+  if (Math.abs(stateHeightAfter - stateHeightBefore) > 2) throw new Error('Date feedback caused a layout shift after the first selection.');
   const rangeEnd = page.locator(`[data-iso="${daysFromToday(4)}"]`);
   await rangeEnd.click();
   if (await page.locator('.month-grid button[aria-pressed="true"]').count() !== 5)
     throw new Error('Selecting an end date did not fill the inclusive range.');
+  if (await page.locator('.month-grid button.range-start, .month-grid button.range-end').count() !== 2 ||
+      await page.locator('.month-grid button.range-middle').count() !== 3)
+    throw new Error('The selected range did not expose distinct endpoints and a continuous middle.');
   const adjustedEnd = page.locator(`[data-iso="${daysFromToday(2)}"]`);
   const fromBox = await rangeEnd.boundingBox(); const toBox = await adjustedEnd.boundingBox();
   if (!fromBox || !toBox) throw new Error('Range endpoints were not visible for drag testing.');

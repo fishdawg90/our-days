@@ -94,12 +94,19 @@ function MonthPicker({ selected, onChange }: { selected: string[]; onChange: (da
     drag.current = null; setDragging(null);
   };
   return <>
-    {selected.length > 0 && <div className={`range-feedback${selected.length === 1 ? ' waiting' : ''}`} aria-live="polite">
-      <span className="range-dot" aria-hidden="true" />
-      <div><strong>{selected.length === 1 ? `${formatDate(start, 'short')} is your start date` : `${selected.length} days selected`}</strong>
-        <span>{selected.length === 1 ? 'Tap any later date to select the whole range.' : `${formatDate(start, 'short')} – ${formatDate(end, 'short')} · drag either end to adjust.`}</span></div>
-      <button type="button" onClick={() => onChange([])} aria-label="Clear selected dates"><X size={16} /> Clear</button>
-    </div>}
+    <div className={`date-selection-state${selected.length === 1 ? ' choosing-end' : selected.length > 1 ? ' has-range' : ''}`} aria-live="polite">
+      <div className={`date-state-slot${start ? ' filled' : ''}`}>
+        <span>Start</span><strong>{start ? formatDate(start, 'short') : 'Choose a day'}</strong>
+      </div>
+      <span className="date-state-connector" aria-hidden="true">→</span>
+      <div className={`date-state-slot${selected.length > 1 ? ' filled' : ' pending'}`}>
+        <span>End <small>optional</small></span><strong>{selected.length > 1 ? formatDate(end, 'short') : selected.length === 1 ? 'Tap another day' : '—'}</strong>
+      </div>
+      {selected.length > 0 && <button type="button" className="clear-dates" onClick={() => onChange([])} aria-label="Clear selected dates"><X size={17} /></button>}
+      <p>{selected.length === 0 ? 'Tap any available date.' : selected.length === 1
+        ? 'Continue for one day, or choose an end date.'
+        : `${selected.length} days selected · drag the first or last day to adjust.`}</p>
+    </div>
     <section className={`calendar-list${dragging ? ' dragging' : ''}`} aria-label="Choose appointment dates"
       onPointerMove={dragMove} onPointerUp={finishDrag} onPointerCancel={() => { drag.current = null; setDragging(null); }}>
       {months.map((month, monthIndex) => {
@@ -111,8 +118,8 @@ function MonthPicker({ selected, onChange }: { selected: string[]; onChange: (da
         const cells = [...Array.from({ length: leading }, (_, index) => `blank-${index}`),
           ...Array.from({ length: monthDays - firstDay + 1 }, (_, index) => isoDateLocal(new Date(month.getFullYear(), month.getMonth(), firstDay + index, 12)))];
         return <section className="month-section" key={`${month.getFullYear()}-${month.getMonth()}`} aria-labelledby={`month-${monthIndex}`}>
-          <h2 id={`month-${monthIndex}`}>{month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h2>
-          <div className="weekdays" aria-hidden="true">{['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, index) => <span key={`${day}${index}`}>{day}</span>)}</div>
+          <h2 id={`month-${monthIndex}`}><strong>{month.toLocaleDateString('en-GB', { month: 'long' })}</strong><span>{month.getFullYear()}</span></h2>
+          <div className="weekdays" aria-hidden="true">{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => <span key={day}>{day}</span>)}</div>
           <div className="month-grid">
             {cells.map(cell => {
               if (cell.startsWith('blank-')) return <span className="calendar-blank" key={cell} />;
@@ -123,8 +130,8 @@ function MonthPicker({ selected, onChange }: { selected: string[]; onChange: (da
               const past = cell < today;
               return <button type="button" key={cell} data-iso={cell} data-past={past || undefined}
                 aria-label={`${formatDate(cell)}${past ? ', unavailable' : anchor ? ', start selected, choose an end date' : endpoint ? `, ${endpoint} of selected range, drag to adjust` : ''}`}
-                aria-pressed={chosen} disabled={past}
-                className={`${past ? 'past ' : ''}${cell === today ? 'today ' : ''}${chosen ? 'selected ' : ''}${anchor ? 'range-anchor ' : endpoint ? `range-${endpoint} ` : chosen ? 'range-middle ' : ''}${dragging === endpoint ? 'active-drag' : ''}`}
+                aria-pressed={chosen} aria-current={cell === today ? 'date' : undefined} disabled={past}
+                className={`${past ? 'past ' : ''}${cell === today ? 'today ' : ''}${chosen ? 'selected ' : ''}${anchor ? 'range-anchor ' : endpoint ? `range-${endpoint} ` : chosen ? 'range-middle ' : ''}${dragging && dragging === endpoint ? 'active-drag' : ''}`}
                 onPointerDown={event => { if (endpoint) beginDrag(endpoint, event); }}
                 onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } choose(cell); }}>
                 <strong>{date.getDate()}</strong>
