@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, CalendarDays, Check, Clock3, CloudOff, LogOut, MapPin, Minus, Plus, RotateCw, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Check, Clock3, CloudOff, LogOut, MapPin, Minus, MoreHorizontal, Plus, RotateCw, X } from 'lucide-react';
 import type { Auth, User } from 'firebase/auth';
 import type { Firestore } from 'firebase/firestore';
 import { IS_E2E } from './config.ts';
@@ -17,6 +17,13 @@ type AuthState = 'restoring' | 'signed-out' | 'checking' | 'ready' | 'denied' | 
 type SaveState = 'idle' | 'saving' | 'pending' | 'partial' | 'invalid' | 'saved';
 const stepOrder: Step[] = ['dates', 'time', 'description', 'location'];
 const labels: Record<Step, string> = { dates: 'Dates', time: 'Time', description: 'What', location: 'Where', review: 'Review' };
+
+function clearedFieldsForStep(step: Step): Partial<AppointmentDraft> {
+  if (step === 'time') return { allDay: false, time: '09:00', durationMinutes: 60 };
+  if (step === 'description') return { descriptionParts: [] };
+  if (step === 'location') return { locationParts: [] };
+  return {};
+}
 
 function monthStart(date: Date): Date { return new Date(date.getFullYear(), date.getMonth(), 1, 12); }
 function moveMonth(date: Date, by: number): Date { return new Date(date.getFullYear(), date.getMonth() + by, 1, 12); }
@@ -424,12 +431,22 @@ function App() {
 
   const actualSteps = draft.selectedDates.length > 1 ? stepOrder.filter(item => item !== 'time') : stepOrder;
   const currentIndex = actualSteps.indexOf(step);
-  const goBack = () => { if (currentIndex > 0) setStep(actualSteps[currentIndex - 1]); };
+  const goBack = () => {
+    if (currentIndex <= 0) return;
+    setDraft(value => ({ ...value, ...clearedFieldsForStep(step) }));
+    setSaveState('idle'); setSaveMessage('');
+    setStep(actualSteps[currentIndex - 1]);
+  };
   const goNext = () => { if (currentIndex < actualSteps.length - 1) setStep(actualSteps[currentIndex + 1]); };
   const update = (change: Partial<AppointmentDraft>) => setDraft(value => ({ ...value, ...change }));
   const reset = () => {
     const next = emptyDraft(); setDraft(next); clearDraft(); setStep('dates'); setSaveState('idle'); setActiveOutbox(null);
     setSaveMessage(''); setLearningWarning(''); setMonthKey(value => value + 1);
+  };
+  const cancelAppointment = () => {
+    const discarded = activeOutbox && activeOutbox.confirmedDates.length === 0 ? activeOutbox : null;
+    reset();
+    if (discarded) void removeOutbox(discarded.uid, discarded.request.submissionId).then(refreshPending).catch(() => { /* Retry record remains recoverable. */ });
   };
 
   const submit = async (appointment: AppointmentDraft = draft) => {
@@ -475,13 +492,19 @@ function App() {
       <div className="top-actions">
         {pendingCount > 0 && <button type="button" className="pending-pill" onClick={() => void retryAll()}><CloudOff size={14} />{pendingCount} waiting</button>}
         {pendingCount === 0 && learningCount > 0 && <button type="button" className="pending-pill learning" onClick={() => void retryAll()}><RotateCw size={14} />suggestions waiting</button>}
-        {user && <button type="button" className="icon-button account" aria-label="Sign out" onClick={() => auth && void signOut(auth)}><LogOut size={18} /></button>}
+        {user && <details className="account-menu"><summary aria-label="Account menu"><MoreHorizontal size={20} /></summary><div>
+          <span>Signed in as</span><strong>{user.email || 'Household member'}</strong>
+          <button type="button" onClick={() => auth && void signOut(auth)}><LogOut size={16} /> Sign out</button>
+        </div></details>}
       </div>
     </header>
     {IS_E2E && <div className="test-banner" role="status">Local test mode — no Google events are created.</div>}
     <main className="content">
       {saveState !== 'saved' && <AppointmentStrip draft={draft} showTime={step !== 'dates'} />}
-      {step !== 'dates' && !['saving', 'pending', 'partial', 'saved'].includes(saveState) && <button type="button" className="back-button" onClick={goBack}><ArrowLeft /> Back</button>}
+      {step !== 'dates' && !['saving', 'pending', 'partial', 'saved'].includes(saveState) && <nav className="workflow-nav" aria-label="Appointment controls">
+        <button type="button" className="back-button" onClick={goBack}><ArrowLeft /> Back</button>
+        <button type="button" className="cancel-button" onClick={cancelAppointment}>Cancel</button>
+      </nav>}
       {saveState !== 'saved' && <div className="progress" aria-label={`Step ${currentIndex + 1} of ${actualSteps.length}: ${title}`}>
         {actualSteps.map((item, index) => <span key={item} className={index <= currentIndex ? 'active' : ''} />)}
       </div>}

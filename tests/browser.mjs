@@ -102,6 +102,15 @@ try {
   await page.locator('output').getByText('10:10', { exact: true }).waitFor();
   await page.getByRole('complementary', { name: 'Appointment so far' }).getByText('10:10').waitFor();
   await page.getByRole('button', { name: '30 min' }).click();
+  await page.getByRole('button', { name: 'Back' }).click();
+  if (await page.locator('.month-grid button[aria-pressed="true"]').count() !== 1)
+    throw new Error('Back from time should preserve the selected date.');
+  await page.getByRole('button', { name: 'Continue with this day' }).click();
+  await page.locator('output').getByText('09:00', { exact: true }).waitFor();
+  if (await page.getByRole('button', { name: '1 hr' }).getAttribute('aria-pressed') !== 'true')
+    throw new Error('Back from time did not clear the time-step selections.');
+  await page.getByRole('slider', { name: 'Start time' }).fill('61');
+  await page.getByRole('button', { name: '30 min' }).click();
   const timeAction = page.getByRole('button', { name: 'Continue to description' });
   const actionRect = await timeAction.evaluate(element => { const rect = element.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom, height: innerHeight }; });
   if (actionRect.top < 0 || actionRect.bottom > actionRect.height) throw new Error('The time-page action was not fixed inside the viewport.');
@@ -111,6 +120,13 @@ try {
   await description.press('Enter');
   await page.getByRole('button', { name: 'Dentist' }).click();
   await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('textbox', { name: 'Location' }).fill('Royal');
+  await page.getByRole('button', { name: 'Royal Surrey' }).click();
+  await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByRole('heading', { name: 'Description' }).waitFor();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  if (await page.locator('.chosen-phrases[aria-label="Selected location"]').count())
+    throw new Error('Back from location did not clear the location selection.');
   await page.getByRole('textbox', { name: 'Location' }).fill('Royal');
   await page.getByRole('button', { name: 'Royal Surrey' }).click();
   await page.locator('.summary-card').getByText('Family checkup Dentist', { exact: true }).waitFor();
@@ -155,7 +171,18 @@ try {
   await context.setOffline(false);
   await page.getByRole('heading', { name: 'Test save confirmed locally.' }).waitFor({ timeout: 10_000 });
 
-  console.log('Browser flow passed: future-only range/drag, ten-minute time, sticky flow, keyboard, draft and offline retry.');
+  // Cancel abandons the entire draft and returns to an empty date picker.
+  await page.getByRole('button', { name: 'Another appointment' }).click();
+  await page.locator(`[data-iso="${daysFromToday(3)}"]`).click();
+  await page.getByRole('button', { name: 'Continue with this day' }).click();
+  await page.getByRole('button', { name: 'Continue to description' }).click();
+  await page.getByRole('button', { name: 'Scan' }).click();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('heading', { name: 'Choose your days' }).waitFor();
+  if (await page.locator('.month-grid button[aria-pressed="true"]').count()) throw new Error('Cancel retained selected dates.');
+  if (await page.getByRole('button', { name: 'Continue with this day' }).isEnabled()) throw new Error('Cancel did not return to an empty draft.');
+
+  console.log('Browser flow passed: range/drag, reversible steps, cancel reset, sticky flow, keyboard, draft and offline retry.');
 } finally {
   await browser?.close();
   server.kill();
